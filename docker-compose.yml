@@ -1,0 +1,37 @@
+version: '3.9'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - healthcare-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: healthcare_loader
+    depends_on:
+      - mongodb
+    volumes:
+      - csv-data:/app/data
+    networks:
+      - healthcare-net
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: >
+      bash -c "sleep 3 && python healthcare_mongo_loader_optimized.py"
+
+volumes:
+  mongo-data:
+  csv-data:
+
+networks:
+  healthcare-net:
+    driver: bridge

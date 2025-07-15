@@ -1,0 +1,20 @@
+Column Name,Data Type,Non-Null Count,Unique Values,Example Values
+Name,object,55500,49992,"['MichAel MILLs' 'wiLlIam RAmirEz' 'JosEph MeYER' 'DR. micHaEl MckAy'
+ 'MoNiCA CaRpEnTER']"
+Age,int64,55500,77,[63 81 51 64 72]
+Gender,object,55500,2,['Male' 'Female']
+Blood Type,object,55500,8,['B-' 'A+' 'A-' 'O+' 'AB+']
+Medical Condition,object,55500,6,['Cancer' 'Obesity' 'Diabetes' 'Asthma' 'Hypertension']
+Date of Admission,date,55500,1827,"DD/MM/YYYY , ['2023-06-30' '2022-09-17' '2024-01-07' '2019-05-31' '2021-12-12']"
+Doctor,object,55500,40341,"['Ronald Gordon' 'Christian Galvan' 'Daniel Fuller' 'Dawn Navarro'
+ 'Douglas Walters']"
+Hospital,object,55500,39876,"['Weber-Mcpherson' 'Murphy-French' 'Cannon-Dorsey'
+ 'Mcconnell and Rios, Clark' 'Sons and Lloyd']"
+Insurance Provider,object,55500,5,['Blue Cross' 'Medicare' 'Aetna' 'UnitedHealthcare' 'Cigna']
+Billing Amount,float64,55500,50000,"[47417.99980357 10003.05467295 37291.17053995  -199.66379451
+ 41148.67810268]"
+Room Number,int64,55500,400,[387 249 149 122 470]
+Admission Type,object,55500,3,['Urgent' 'Emergency' 'Elective']
+Discharge Date,date,55500,1856,"DD/MM/YYYY , ['2023-07-06' '2022-10-14' '2024-01-27' '2019-06-12' '2022-01-05']"
+Medication,object,55500,5,['Paracetamol' 'Ibuprofen' 'Aspirin' 'Penicillin' 'Lipitor']
+Test Results,object,55500,3,['Normal' 'Inconclusive' 'Abnormal']
