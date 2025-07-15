@@ -1,6 +1,3 @@
-Below is the **complete, up-to-date `README.md`** with an expanded **🔐 Contrôle d’accès / Sécurité (CE3)** section that shows *exact* Mongo Shell / `mongosh` commands to créer les utilisateurs, attribuer les rôles et se connecter depuis le conteneur `app`.
-
-````markdown
 # 🏥 Healthcare CSV → MongoDB Loader (v2)
 
 Ce projet fournit un pipeline **robuste, testé, dockerisé et extensible** pour charger des données patients depuis un CSV vers MongoDB.
@@ -205,11 +202,11 @@ test:           ## Run pytest suite
 
 ### 1️⃣  Création des rôles & utilisateurs MongoDB
 
-| Rôle Mongo / Utilisateur | Privilèges précis sur `HealthcareDB` | Pourquoi / périmètre d’usage | Commande `mongosh` de création* |
-|--------------------------|--------------------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `loaderRole` (utilisateur **loader**) | `insert`, `update`, `createIndex`, `collMod` sur *toutes* les collections | Pipeline d’ingestion : insère des documents, gère les index & validation JSON | ```js\nuse HealthcareDB\ndb.createRole({ role: "loaderRole", privileges: [{ resource: { db: "HealthcareDB", collection: "" }, actions: ["insert","update","createIndex","collMod"] }], roles: [] })\ndb.createUser({ user: "loader", pwd: "loaderpwd", roles: ["loaderRole"] })``` |
-| `analystRole` (utilisateur **analyst**) | `find` (lecture seule) sur *toutes* les collections | BI, dashboards, consultation des données | ```js\nuse HealthcareDB\ndb.createRole({ role: "analystRole", privileges: [{ resource: { db: "HealthcareDB", collection: "" }, actions: ["find"] }], roles: [] })\ndb.createUser({ user: "analyst", pwd: "analystpwd", roles: ["analystRole"] })``` |
-| *(rôle natif)* **admin** (utilisateur **admin**) | `dbAdmin` + `userAdmin` | Gestion des schémas, index, utilisateurs & rôles | ```js\nuse HealthcareDB\ndb.createUser({ user: "admin", pwd: "adminpwd", roles: [ { role: "dbAdmin", db: "HealthcareDB" }, { role: "userAdmin", db: "HealthcareDB" } ] })``` |
+| Rôle Mongo / Utilisateur          | Privilèges précis sur `HealthcareDB`                                     | Pourquoi / périmètre d’usage                                 |
+|-----------------------------------|---------------------------------------------------------------------------|---------------------------------------------------------------|
+| `loaderRole` (utilisateur **loader**)  | `insert`, `update`, `createIndex`, `collMod` sur *toutes* les collections | Pipeline d’ingestion : insère des documents, gère les index & validation JSON |
+| `analystRole` (utilisateur **analyst**) | `find` (lecture seule) sur *toutes* les collections                       | BI, dashboards, consultation des données                      |
+| *(rôle natif)* **admin** (utilisateur **admin**) | `dbAdmin` + `userAdmin`                                                   | Gestion des schémas, index, utilisateurs & rôles              |
 
 ---
 
@@ -321,4 +318,3 @@ docker volume prune -f   # ⚠️  supprime les données Mongo
 ## 👨‍💻 Auteur
 
 Rudy Desplan – Data Engineer
-````
