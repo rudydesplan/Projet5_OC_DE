@@ -2,11 +2,15 @@ version: '3.9'
 
 services:
   mongodb:
-    image: mongo:6.0
+    image: mongo:8.0
     container_name: mongodb
     restart: unless-stopped
     ports:
       - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=rootpwd
+      - MONGO_INITDB_DATABASE=HealthcareDB
     volumes:
       - mongo-data:/data/db
     networks:
@@ -14,7 +18,7 @@ services:
 
   app:
     build:
-      context: .
+      context: ./app
       dockerfile: Dockerfile
     container_name: healthcare_loader
     depends_on:
@@ -25,8 +29,18 @@ services:
       - healthcare-net
     environment:
       - PYTHONUNBUFFERED=1
+      # NO LONGER NEEDED HERE if hardcoding in command, but keeping for clarity
+      # - MONGO_URI=mongodb://loader:loaderpwd@mongo:27017/HealthcareDB?authSource=HealthcareDB
+      # - ADMIN_MONGO_URI=mongodb://root:rootpwd@mongo:27017/admin?authSource=admin
     command: >
-      bash -c "sleep 3 && python healthcare_mongo_loader_optimized.py"
+      bash -c "
+      sleep 15 &&
+      python healthcare_mongo_loader_optimized.py \
+      --csv /app/data/healthcare_dataset.csv \
+      --mongo_uri 'mongodb://loader:loaderpwd@mongodb:27017/HealthcareDB?authSource=HealthcareDB' \
+      --db_name HealthcareDB \
+      --admin_mongo_uri 'mongodb://root:rootpwd@mongodb:27017/admin?authSource=admin'
+      "
 
 volumes:
   mongo-data:
