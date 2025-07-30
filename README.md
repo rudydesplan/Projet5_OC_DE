@@ -26,6 +26,7 @@ Il suit un **développement par branches** avec revue des fonctionnalités avant
 |----|--------|
 |🗄️|**Schémas JSON** stricts sur 4 collections (Patients, Admissions, MedicalRecords, Billing)|
 |⚡|Insertion **batch** via `bulk_write` (mode *ordonné* ⇒ arrêt sur première erreur, reprise automatique)|
+|🔐|Initialisation automatique et idempotente des rôles et utilisateurs (loader, analyst)|
 |🔍|**Index** composés et simples créés automatiquement|
 |🧽|Nettoyage & validation **vectorisés** (`pandas`) avant insertion|
 |📝|**Logs** détaillés (rotation 500 KB / 5 jours) via `loguru`|
@@ -39,18 +40,20 @@ Il suit un **développement par branches** avec revue des fonctionnalités avant
 ## 🗂 Arborescence du projet
 
 ```bash
-project-root/
-├── Makefile                    ← Commandes rapides
-├── docker-compose.yml          ← Orchestration Mongo + App
-├── README.md                   ← Ce fichier
+Root/
 ├── app/
-│   ├── Dockerfile              ← Image de l'application
+│   ├── data/
+│   │   ├── healthcare_dataset.csv
+│   │   └── Healthcare_Dataset_Dictionary.csv
+│   ├── test/
+│   │   └── test_healthcare_loader.py
+│   ├── Dockerfile
 │   ├── healthcare_mongo_loader_optimized.py
-│   ├── requirements.txt
-│   └── data/
-│       └── healthcare_dataset.csv
-└── test/
-    └── test_healthcare_loader.py
+│   └── requirements.txt
+├── docs/
+├── docker-compose.yml
+├── Makefile
+└── README.md
 ```
 
 ---
@@ -91,15 +94,27 @@ project-root/
 
 ## 🧭 Flux de traitement
 
-1. **Lecture** CSV en chunks (taille par défaut 5 000).
-2. **Conversions numériques** (`Age`, `Room Number` → `Int64`; `Billing Amount` → `float64`).
-3. **Nettoyage texte** (trim, upper/lower/title, NULL-likes).
-4. **Validation vectorisée** (`validate_patients`) → masque True/False.
-5. **Bulk-upsert** Patients (`ordered=True` : arrêt sur erreur, rejoue le reste unitaire).
-6. **Récupération des `_id`** nouvellement créés.
-7. **Préparation** & **bulk-insert** *ordonnés* des documents liés (Admissions / Medical / Billing).
-8. `bypass_document_validation=False` : Mongo **revalide** chaque insert.
-9. **Logs** succès / erreurs chunk par chunk.
+1. Connexion admin initiale : Le script se connecte d'abord à Mongo en tant qu'utilisateur root via une URI dédiée (--admin_mongo_uri).
+
+2. Initialisation des Rôles & Utilisateurs : Il exécute une fonction idempotente (initialize_mongodb_users_and_roles) qui crée les rôles (loaderRole, analystRole) et les utilisateurs (loader, analyst) s'ils n'existent pas.
+
+3. Connexion loader : Le script se déconnecte puis se reconnecte avec l'utilisateur loader, qui a des privilèges limités, respectant ainsi le principe du moindre privilège.
+
+4. Application des Schémas & Index : Création ou mise à jour des validateurs de schéma (collMod) et des index pour les 4 collections.
+
+5. Lecture CSV par Chunks : Lecture du fichier CSV par lots (taille par défaut : 5 000).
+
+6. Nettoyage & Validation : Conversions de types, nettoyage de texte et validation vectorisée des données patients via pandas.
+
+7. Bulk-Upsert/Insert :
+
+	- Les Patients sont insérés/mis à jour via UpdateOne en mode upsert.
+
+	- Les documents liés (Admissions, MedicalRecords, Billing) sont insérés via InsertOne.
+
+	- Toutes les opérations sont ordonnées : en cas d'erreur de validation, le lot est interrompu et le script tente d'insérer les documents restants un par un.
+
+8. Logs Détaillés : Journalisation des succès et des erreurs pour chaque lot.
 
 ---
 
@@ -144,35 +159,57 @@ ENTRYPOINT ["python", "healthcare_mongo_loader_optimized.py"]
 ### `docker-compose.yml`
 
 ```yaml
-version: "3.8"
+version: '3.9'
 
 services:
-  mongo:
-    image: mongo:6
+  mongodb:
+    image: mongo:8.0
+    container_name: mongodb
     restart: unless-stopped
     ports:
       - "27017:27017"
     environment:
-      # Active l'auth dès le 1er lancement
       - MONGO_INITDB_ROOT_USERNAME=root
       - MONGO_INITDB_ROOT_PASSWORD=rootpwd
+      - MONGO_INITDB_DATABASE=HealthcareDB
     volumes:
-      - mongo_data:/data/db
+      - mongo-data:/data/db
+    networks:
+      - healthcare-net
 
   app:
-    build: ./app
-    depends_on: [mongo]
-    environment:
-      - MONGO_URI=mongodb://loader:loaderpwd@mongo:27017/HealthcareDB?authSource=HealthcareDB
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: healthcare_loader
+    depends_on:
+      - mongodb
     volumes:
-      - ./app/data:/app/data
+      - csv-data:/app/data
+    networks:
+      - healthcare-net
+    environment:
+      - PYTHONUNBUFFERED=1
+      # NO LONGER NEEDED HERE if hardcoding in command, but keeping for clarity
+      # - MONGO_URI=mongodb://loader:loaderpwd@mongo:27017/HealthcareDB?authSource=HealthcareDB
+      # - ADMIN_MONGO_URI=mongodb://root:rootpwd@mongo:27017/admin?authSource=admin
     command: >
-      python healthcare_mongo_loader_optimized.py
-      --csv /app/data/healthcare_dataset.csv
-      --mongo_uri ${MONGO_URI}
+      bash -c "
+      sleep 15 &&
+      python healthcare_mongo_loader_optimized.py \
+      --csv /app/data/healthcare_dataset.csv \
+      --mongo_uri 'mongodb://loader:loaderpwd@mongodb:27017/HealthcareDB?authSource=HealthcareDB' \
+      --db_name HealthcareDB \
+      --admin_mongo_uri 'mongodb://root:rootpwd@mongodb:27017/admin?authSource=admin'
+      "
 
 volumes:
-  mongo_data:
+  mongo-data:
+  csv-data:
+
+networks:
+  healthcare-net:
+    driver: bridge
 ```
 
 ---
@@ -200,62 +237,37 @@ test:           ## Run pytest suite
 
 ## 🔐 Contrôle d’accès / Sécurité (CE3)
 
-### 1️⃣  Création des rôles & utilisateurs MongoDB
+### 1️⃣  Initialisation automatisée des rôles & utilisateurs MongoDB
+
+1️⃣ Initialisation automatisée des rôles & utilisateurs
+
+Le script healthcare_mongo_loader_optimized.py gère désormais automatiquement la création des rôles et des utilisateurs nécessaires lors de son premier lancement.
+
+Cette initialisation est 
+
+idempotente : si un rôle ou un utilisateur existe déjà, sa création est simplement ignorée, évitant ainsi les erreurs lors de lancements multiples.
 
 | Rôle Mongo / Utilisateur          | Privilèges précis sur `HealthcareDB`                                     | Pourquoi / périmètre d’usage                                 |
 |-----------------------------------|---------------------------------------------------------------------------|---------------------------------------------------------------|
-| `loaderRole` (utilisateur **loader**)  | `insert`, `update`, `createIndex`, `collMod` sur *toutes* les collections | Pipeline d’ingestion : insère des documents, gère les index & validation JSON |
+| `loaderRole` (utilisateur **loader**)  | `find`, `insert`, `update`, `createIndex`, `collMod` sur *toutes* les collections | Pipeline d’ingestion : insère des documents, gère les index & validation JSON |
 | `analystRole` (utilisateur **analyst**) | `find` (lecture seule) sur *toutes* les collections                       | BI, dashboards, consultation des données                      |
 | *(rôle natif)* **admin** (utilisateur **admin**) | `dbAdmin` + `userAdmin`                                                   | Gestion des schémas, index, utilisateurs & rôles              |
 
 ---
 
-> Connectez-vous avec `mongosh` pour exécuter les commandes de création :
-```bash
-docker compose exec mongo mongosh -u root -p rootpwd --authenticationDatabase admin
-```
+> 2️⃣  Authentification & Connexion de l’application
 
-**Extraits de commandes MongoDB**  
-```javascript
-use HealthcareDB
+Le script utilise maintenant deux URIs de connexion distinctes, passées en arguments, pour séparer les tâches :
 
-// Rôle loader
-db.createRole({
-  role: "loaderRole",
-  privileges: [{ resource: { db: "HealthcareDB", collection: "" }, actions: ["insert", "update", "createIndex", "collMod"] }],
-  roles: []
-})
+1. URI Admin (--admin_mongo_uri) : Utilisée une seule fois au démarrage pour se connecter en tant que root et exécuter la création des rôles/utilisateurs.
 
-// Rôle analyst
-db.createRole({
-  role: "analystRole",
-  privileges: [{ resource: { db: "HealthcareDB", collection: "" }, actions: ["find"] }],
-  roles: []
-})
+	- Exemple : mongodb://root:rootpwd@mongo:27017/admin
 
-// Utilisateurs
-db.createUser({ user: "loader", pwd: "loaderpwd", roles: ["loaderRole"] })
-db.createUser({ user: "analyst", pwd: "analystpwd", roles: ["analystRole"] })
-db.createUser({
-  user: "admin",
-  pwd: "adminpwd",
-  roles: [
-    { role: "dbAdmin", db: "HealthcareDB" },
-    { role: "userAdmin", db: "HealthcareDB" }
-  ]
-})
-```
+2. URI Loader (--mongo_uri) : Utilisée pour toutes les opérations de chargement de données avec l'utilisateur aux droits restreints loader.
 
----
+	- Exemple : mongodb://loader:loaderpwd@mongo:27017/HealthcareDB?authSource=HealthcareDB
 
-### 2️⃣  Authentification & Connexion de l’application
-
-Le conteneur Python utilise l’URI suivante pour se connecter à MongoDB :  
-```
-mongodb://loader:loaderpwd@mongo:27017/HealthcareDB?authSource=HealthcareDB
-```
-
-Cette URI est fournie via la variable d’environnement `MONGO_URI` du `docker-compose.yml` et transmise au script via l’argument `--mongo_uri`.
+Ce découplage est une bonne pratique de sécurité qui garantit que l'application n'utilise les pleins pouvoirs que lorsque c'est strictement nécessaire.
 
 ---
 
